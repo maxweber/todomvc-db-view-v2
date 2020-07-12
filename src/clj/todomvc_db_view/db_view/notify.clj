@@ -15,7 +15,7 @@
 ;; low latency and reduced payload size of WebSockets is not required
 ;; for this use case.
 
-(def client-listeners-state
+(defonce client-listeners-state
   ;; holds the httpkit channels of the clients, which are waiting for
   ;; a db-view notify:
   (atom #{}))
