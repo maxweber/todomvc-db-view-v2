@@ -1,11 +1,12 @@
 (ns todomvc-db-view.system
-  (:require [org.httpkit.server :as server]
+  (:require [ring.adapter.jetty :as jetty]
             [ring.middleware.file :as middleware-file]
             [todomvc-db-view.datomic.connection :as datomic]
             [todomvc-db-view.db-view.get :as db-view-get]
             [todomvc-db-view.db-view.notify :as notify]
             [todomvc-db-view.datomic.tx-report-queue :as tx-report-queue]
             [todomvc-db-view.db-view.command :as command]
+            [todomvc-db-view.ring.dispatch :as dispatch]
             [datomic.api :as d]
             [ring.util.response :as response]
             [redelay.core :as rd]))
@@ -17,28 +18,42 @@
 ;; stopped. One system component for example is the HTTP server that
 ;; frees the port, when it is stopped.
 
-(defn dispatch
-  "Dispatches the Ring request to the Ring handler of the system."
-  [request]
-  (or
-   (db-view-get/ring-handler request)
-   (command/ring-handler request)
-   (notify/ring-handler request)
-   ;; NOTE: add new Ring handlers here.
-   ))
-
-(def app
-  ;; The main Ring-handler:
-  (-> dispatch
+(def resource-handler
+  (-> (fn [request]
+        nil)
       (middleware-file/wrap-file "public")))
+
+(defn sync-handlers
+  []
+  [db-view-get/ring-handler
+   command/ring-handler
+   resource-handler
+   ;; NOTE: add new synchronous Ring handlers above.
+   ])
+
+(defn async-handlers
+  []
+  [notify/ring-handler
+   ;; NOTE: add new asynchronous Ring handlers above.
+   ])
+
+(defn dispatch
+  [request respond raise]
+  (dispatch/dispatch-async
+   (conj (async-handlers)
+         (partial dispatch/dispatch-sync
+                  (sync-handlers)))
+   request respond raise))
 
 (def server
   (rd/state :start
-            (server/run-server #'app
-                               {:port 8080})
-
+            (jetty/run-jetty #'dispatch
+                             {:port 8080
+                              :join? false
+                              :async? true
+                              })
             :stop
-            (this)
+            (.stop this)
             ))
 
 (defn start!

@@ -1,6 +1,5 @@
 (ns todomvc-db-view.db-view.notify
-  (:require [org.httpkit.server :as httpkit]
-            [datomic.api :as d]
+  (:require [datomic.api :as d]
             [todomvc-db-view.util.edn :as edn]))
 
 ;; Concept:
@@ -19,31 +18,19 @@
 (defonce client-listeners-state
   ;; holds the httpkit channels of the clients, which are waiting for
   ;; a db-view notify:
-  (atom {}))
+  (atom #{}))
 
 (defn ring-handler
   "Ring-handler for the '/db-view/notify' API endpoint."
-  [request]
+  [request respond raise]
   (when (and (= (:request-method request) :post)
              (= (:uri request) "/db-view/notify"))
-    ;; NOTE: for a production app add an authentication check here:
-    (httpkit/with-channel request channel
-      ;; register the user's browser session in the
-      ;; `client-listeners-state`:
-      (swap! client-listeners-state
-             assoc
-             channel
-             channel)
-      (httpkit/on-close channel
-                        (fn [status]
-                          ;; remove the user's browser session from
-                          ;; the `client-listeners-state` as soon as
-                          ;; the channel is closed, meaning the user
-                          ;; has closed the browser tab or the network
-                          ;; connection was interrupted:
-                          (swap! client-listeners-state
-                                 dissoc
-                                 channel))))))
+    ;; NOTE: for a production app add an authentication check
+    ;;       here:
+    (swap! client-listeners-state
+           conj
+           {:respond respond})
+    true))
 
 (defn notify
   "A Datomic transaction listener that notifies all user browser
@@ -53,8 +40,15 @@
   (let [basis-t (d/basis-t (:db-after tx-report))
         response (edn/response
                   {:db/basis-t basis-t})]
-    ;; NOTE: for a production app only send notifications to the users
-    ;;       which are affected by this `tx-report`:
-    (doseq [channel (vals @client-listeners-state)]
-      (httpkit/send! channel
-                     response))))
+    ;; NOTE: for a production app only send notifications to the
+    ;;       users which are affected by this `tx-report`:
+    (doseq [{:keys [respond] :as listener} @client-listeners-state]
+      (try
+        (respond response)
+        (catch Exception e
+          ;; ignore exceptions here, they are thrown if the HTTP
+          ;; connection was already closed for example.
+          ))
+      (swap! client-listeners-state
+             disj
+             listener))))
