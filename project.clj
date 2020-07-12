@@ -4,7 +4,6 @@
                  [http-kit "2.3.0"]
                  [ring/ring-core "1.7.1"]
                  [com.datomic/datomic-free "0.9.5697"]
-                 [buddy/buddy-core "1.6.0"]
                  [functionalbytes/redelay "1.0.2"]
                  ]
   :source-paths ["src/clj"]
